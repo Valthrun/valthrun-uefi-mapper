@@ -1,0 +1,19 @@
+[package]
+name = "valthrun-uefi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = { version = "1.0.75", default-features = false }
+log = "0.4.20"
+obfstr = "0.4.3"
+paste = "1.0.14"
+pelite = { version = "0.10.0", default-features = false, features = [
+    "unsafe_alignment",
+] }
+uefi = { version = "0.25.0", default-features = false, features = ["alloc"] }
+uefi-raw = "0.4.0"
+# uefi-services = { version = "0.22.0", default-features = false, features = [
+#     "panic_handler",
+# ] }
