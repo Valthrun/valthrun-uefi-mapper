@@ -198,22 +198,8 @@ extern "efiapi" fn hooked_bl_img_allocate_image_buffer(
             unused,
             0x00,
         );
-        {
-            log::debug!(
-                "memory_type {:X} - {:X}",
-                memory_type,
-                0 //BL_MEMORY_TYPE_EFI_RUNTIME_DATA
-            );
-            log::debug!(
-                "attributes {:X} - {:X}",
-                attributes,
-                BL_MEMORY_ATTRIBUTE_RWX
-            );
-            log::debug!("unused {:X}", unused as u64);
-            log::debug!("flags {:X} - {:X}", flags, 0x00);
-            log::debug!("BlMemory allocate: {:X} | {:X}", status, buffer as u64);
-        }
 
+        log::debug!("BlMemory allocate: {:X} | {:X}", status, buffer as u64);
         if status == 0 {
             unsafe {
                 IMAGE_BUFFER = Some(ImageBuffer {
@@ -606,7 +592,6 @@ impl LoaderParameterBlockEx for LoaderParameterBlock {
             };
 
             let image_name = String::from_utf16_lossy(base_image_name);
-            log::debug!("- {}", image_name);
             if image_name == name {
                 return Ok(Some(entry));
             }
@@ -817,8 +802,9 @@ fn map_custom_driver(
             .copy_from_slice(&instructions);
 
         log::debug!(
-            "Hijacked driver entry point at {:X}",
-            hijacked_driver.as_ptr() as usize + rva_hijacked_entry_point
+            "Hijacked driver entry point at {:X}. Original bytes at {:X}",
+            hijacked_driver.as_ptr() as usize + rva_hijacked_entry_point,
+            memory.as_ptr() as usize + rva_original_entry_bytes
         );
     }
 
