@@ -104,7 +104,7 @@ type FnExitBootServices =
 const BL_MEMORY_TYPE_APPLICATION: u32 = 0xE0000004;
 const BL_MEMORY_ATTRIBUTE_RWX: u32 = 0x424000;
 
-static TARGET_DRIVER: &'static [u8] = include_bytes!(r"../driver_uefi.dll");
+static TARGET_DRIVER: &'static [u8] = include_bytes!(r"../driver/driver_uefi.dll");
 
 type StaticTrampolineHook<H> = StaticHook<H, TrampolineHook<H>>;
 

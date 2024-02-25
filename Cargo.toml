@@ -14,6 +14,3 @@ pelite = { version = "0.10.0", default-features = false, features = [
 ] }
 uefi = { version = "0.25.0", default-features = false, features = ["alloc"] }
 uefi-raw = "0.4.0"
-# uefi-services = { version = "0.22.0", default-features = false, features = [
-#     "panic_handler",
-# ] }

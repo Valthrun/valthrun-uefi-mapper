@@ -3,4 +3,6 @@ _vm_disks
 target
 esp
 _ida
-driver_uefi.dll
+
+driver_uefi.zip
+driver
