@@ -9,17 +9,15 @@ use core::{
 
 use uefi::CStr16;
 
-use crate::{
-    context::{
-        current_execution_context,
-        enter_execution_context,
-        system_table_opt,
-        ExecutionContext,
-    },
-    winload::{
-        self,
-        WinloadContext,
-    },
+use super::{
+    current_execution_context,
+    enter_execution_context,
+    system_table_opt,
+    ExecutionContext,
+};
+use crate::winload::{
+    self,
+    WinloadContext,
 };
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -52,12 +50,8 @@ fn panic_handler_impl(info: &core::panic::PanicInfo) -> ! {
 
     /* Write a panic message without any allocations in case something within the allocator paniced */
     {
-        let mut buffer = [0u16; 9];
-        for (index, char) in "PANIC!\n\r\0".encode_utf16().enumerate() {
-            buffer[index] = char;
-        }
-
-        let message = unsafe { CStr16::from_u16_with_nul(&buffer).unwrap_unchecked() };
+        let buffer = obfstr::wide!("PANIC OCCURRED!\n\r\0");
+        let message = unsafe { CStr16::from_u16_with_nul(buffer).unwrap_unchecked() };
         let _ = system_table.stdout().output_string(message);
     }
 

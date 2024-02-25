@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use super::{
     Function,
     Hook,
+    TrampolineHook,
 };
 
 pub struct StaticHook<T: Function, H: Hook<T>> {
@@ -46,5 +47,11 @@ impl<T: Function, H: Hook<T>> StaticHook<T, H> {
         if let Some(inner) = &mut self.inner {
             inner.disable();
         }
+    }
+}
+
+impl<T: Function> StaticHook<T, TrampolineHook<T>> {
+    pub fn initialize_trampoline(&mut self, target: T) {
+        self.initialize(TrampolineHook::create(target))
     }
 }

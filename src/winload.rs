@@ -13,8 +13,6 @@ static mut CURRENT_EXECUTION_CONTEXT: Option<*mut u32> = None;
 static mut BLP_ARCH_SWITCH_CONTEXT: Option<FnBlpArchSwitchContext> = None;
 
 pub fn initialize(image: &ImageInfo) -> anyhow::Result<()> {
-    /* TODO: Set custom panic hook when inside winload context... */
-
     let current_execution_context = image.resolve_signature(&Signature::relative_address(
         obfstr!("CurrentExecutionContext"),
         obfstr!("48 8B 05 ? ? ? ? 4C 8D 7D D0"),

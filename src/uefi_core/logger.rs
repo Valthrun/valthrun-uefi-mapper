@@ -5,11 +5,11 @@ use alloc::{
 
 use uefi::CStr16;
 
+use super::system_table;
 use crate::{
-    context::{
+    uefi_core::context::{
         current_execution_context,
         enter_execution_context,
-        system_table,
         ExecutionContext,
     },
     winload::{

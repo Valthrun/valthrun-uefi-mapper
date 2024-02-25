@@ -12,6 +12,7 @@ use alloc::{
 };
 use core::{
     self,
+    ptr,
     slice,
 };
 
@@ -20,18 +21,15 @@ use anyhow::{
     Context,
     Error,
 };
-use context::{
-    enter_execution_context,
-    system_table,
-    ExecutionContext,
-};
 use hook::{
     Function,
     StaticHook,
     TrampolineHook,
 };
-use image_info::ImageInfo;
-use logger::APP_LOGGER;
+use image_info::{
+    ImageBuffer,
+    ImageInfo,
+};
 use obfstr::obfstr;
 use pelite::{
     PeFile,
@@ -74,12 +72,26 @@ use uefi::{
     CStr16,
     Identify,
 };
+use uefi_core::system_table;
 use wdef::{
+    BlImgAllocateImageBuffer,
+    ImgArchStartBootApplication,
     LoaderParameterBlock,
+    OslFwpKernelSetupPhase1,
     KLDR_DATA_TABLE_ENTRY,
+    NT_STATUS,
 };
 
-use crate::utils::press_enter_to_continue;
+use crate::{
+    uefi_core::{
+        enter_execution_context,
+        ExecutionContext,
+    },
+    utils::{
+        press_enter_to_continue,
+        set_exit_boot_services,
+    },
+};
 
 extern crate alloc;
 
@@ -92,31 +104,7 @@ type FnExitBootServices =
 const BL_MEMORY_TYPE_APPLICATION: u32 = 0xE0000004;
 const BL_MEMORY_ATTRIBUTE_RWX: u32 = 0x424000;
 
-static TARGET_DRIVER: &'static [u8] = include_bytes!(
-    r"C:\Users\Markus\git\valthrun-driver\target\x86_64-pc-windows-msvc\debug\driver_uefi.dll"
-);
-
-#[allow(non_camel_case_types)]
-pub type NT_STATUS = i32;
-
-type ImgArchStartBootApplication = extern "efiapi" fn(
-    app_entry: *const (),
-    image_base: *mut u8,
-    image_size: u32,
-    boot_option: u8,
-    return_arguments: *mut (),
-) -> u32;
-
-type BlImgAllocateImageBuffer = extern "efiapi" fn(
-    image_buffer: *mut *mut u8,
-    image_size: usize,
-    memory_type: u32,
-    attributes: u32,
-    unused: *const (),
-    flags: u32,
-) -> NT_STATUS;
-
-type OslFwpKernelSetupPhase1 = extern "efiapi" fn(lpb: *mut LoaderParameterBlock) -> u32;
+static TARGET_DRIVER: &'static [u8] = include_bytes!(r"../driver_uefi.dll");
 
 type StaticTrampolineHook<H> = StaticHook<H, TrampolineHook<H>>;
 
@@ -188,7 +176,7 @@ extern "efiapi" fn hooked_bl_img_allocate_image_buffer(
     };
 
     {
-        let mut buffer = core::ptr::null_mut();
+        let mut buffer = ptr::null_mut();
         let buffer_size = 0x80000; /* Next time try to get the highest VirtAddr + VirtSize */
         let status = (original)(
             &mut buffer,
@@ -237,29 +225,15 @@ extern "efiapi" fn hooked_osl_fwp_kernel_setup_phase1(lpb: *mut LoaderParameterB
     original(lpb)
 }
 
-struct ImageBuffer {
-    pub address: *mut u8,
-    pub length: usize,
-}
-
-impl ImageBuffer {
-    pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.address, self.length) }
-    }
-}
-
 static mut ORIGINAL_EXIT_BOOT_SERVICES: Option<FnExitBootServices> = None;
 
 static mut WINLOAD_IMAGE: Option<ImageInfo> = None;
 static mut IMAGE_BUFFER: Option<ImageBuffer> = None;
 
-mod allocator;
-mod context;
 mod hook;
 mod image_info;
-mod logger;
-mod panic;
 mod signature;
+mod uefi_core;
 mod utils;
 mod wdef;
 mod winload;
@@ -291,16 +265,7 @@ fn initialize_output() -> uefi::Result<()> {
 #[entry]
 fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let _exec_guard = enter_execution_context(ExecutionContext::UEFI);
-    context::setup_system_table(&system_table);
-    unsafe { uefi::allocator::init(system_table.boot_services()) };
-
-    let _ = log::set_logger(&APP_LOGGER);
-    log::set_max_level(log::STATIC_MAX_LEVEL);
-
-    if let Err(err) = initialize_output() {
-        log::error!("{}: {:?}", obfstr!("Failed to initialize output"), err);
-        return Status::LOAD_ERROR;
-    }
+    uefi_core::initialize(&system_table);
 
     if let Err(err) = real_main(handle, &mut system_table) {
         log::error!("{}", obfstr!("Valthrun bootstrap error"));
@@ -314,24 +279,23 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 }
 
 fn real_main(handle: Handle, system_table: &mut SystemTable<Boot>) -> anyhow::Result<()> {
-    let windows_bootmgr = get_windows_bootmgr(handle, system_table.boot_services())?
+    initialize_output()
+        .map_err(|err| anyhow!("{}: {:#?}", obfstr!("Failed to initialize output"), err))?;
+
+    let bs = system_table.boot_services();
+    let windows_bootmgr = find_windows_bootmgr(handle, bs)?
         .with_context(|| obfstr!("Could not find Windows boot manager").to_string())?;
 
     log::debug!(
         "{} {}",
         obfstr!("Windows boot manager located at"),
         *&windows_bootmgr
-            .to_string(
-                system_table.boot_services(),
-                DisplayOnly(true),
-                AllowShortcuts(false)
-            )
+            .to_string(bs, DisplayOnly(true), AllowShortcuts(false))
             .map_err(|err| anyhow!("{:#}", err))?
             .ok_or_else(|| anyhow!("{}", obfstr!("expected the path to be non empty")))?
     );
 
-    let bootmgr_handle = system_table
-        .boot_services()
+    let bootmgr_handle = bs
         .load_image(
             handle,
             LoadImageSource::FromDevicePath {
@@ -351,8 +315,8 @@ fn real_main(handle: Handle, system_table: &mut SystemTable<Boot>) -> anyhow::Re
     setup_hooks_bootmgr(bootmgr_image)?;
 
     log::info!("Invoking bootmgr");
-    if let Err(err) = { system_table.boot_services().start_image(bootmgr_handle) } {
-        if let Err(err) = system_table.boot_services().unload_image(bootmgr_handle) {
+    if let Err(err) = { bs.start_image(bootmgr_handle) } {
+        if let Err(err) = bs.unload_image(bootmgr_handle) {
             log::warn!(
                 "{}: {:#}",
                 obfstr!("Failed to unload Windows bootmgr image"),
@@ -367,13 +331,14 @@ fn real_main(handle: Handle, system_table: &mut SystemTable<Boot>) -> anyhow::Re
         )
     }
 
-    unreachable!(
+    log::error!(
         "{}",
-        obfstr!("Windows bootmgr should have overtaken by now...")
+        obfstr!("The Windows boot manager exited unexpectedly.")
     );
+    Ok(())
 }
 
-fn get_windows_bootmgr(
+fn find_windows_bootmgr(
     imnage_handle: Handle,
     boot_services: &BootServices,
 ) -> anyhow::Result<Option<Box<DevicePath>>> {
@@ -494,7 +459,7 @@ unsafe extern "efiapi" fn hooked_exit_boot_services(
         press_enter_to_continue();
     } else {
         log::info!("{}", obfstr!("Valthrun driver successfully mapped."));
-        // press_enter_to_continue();
+        press_enter_to_continue();
         log::info!("Booting Windows...");
     }
 
@@ -508,23 +473,12 @@ unsafe extern "efiapi" fn hooked_exit_boot_services(
     (original_fn)(image_handle, map_key)
 }
 
-fn set_exit_boot_services(target: FnExitBootServices) -> FnExitBootServices {
-    let raw_bs = unsafe {
-        core::mem::transmute_copy::<_, &mut uefi_raw::table::boot::BootServices>(
-            &system_table().boot_services(),
-        )
-    };
-
-    core::mem::replace(&mut raw_bs.exit_boot_services, target)
-}
-
 fn setup_hooks_bootmgr(image: ImageInfo) -> anyhow::Result<()> {
     let func_address = image.resolve_signature(&Signature::pattern("ImgArchStartBootApplication", "48 8B C4 48 89 58 ? 44 89 40 ? 48 89 50 ? 48 89 48 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 ? 48 81 EC C0 00 00 00"))?;
 
     unsafe {
-        HOOK_IMG_ARCH_START_BOOT_APPLICATION.initialize(TrampolineHook::create(
-            ImgArchStartBootApplication::from_ptr_usize(func_address),
-        ));
+        HOOK_IMG_ARCH_START_BOOT_APPLICATION
+            .initialize_trampoline(ImgArchStartBootApplication::from_ptr_usize(func_address));
         HOOK_IMG_ARCH_START_BOOT_APPLICATION.enable(hooked_img_arch_start_boot_application);
     };
 
@@ -549,12 +503,12 @@ fn setup_hooks_winload(image: ImageInfo) -> anyhow::Result<()> {
     unsafe {
         WINLOAD_IMAGE = Some(image);
 
-        HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER.initialize(TrampolineHook::create(
+        HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER.initialize_trampoline(
             BlImgAllocateImageBuffer::from_ptr_usize(bl_img_allocate_image_buffer),
-        ));
-        HOOK_OSL_FWP_KERNEL_SETUP_PHASE1.initialize(TrampolineHook::create(
+        );
+        HOOK_OSL_FWP_KERNEL_SETUP_PHASE1.initialize_trampoline(
             OslFwpKernelSetupPhase1::from_ptr_usize(osl_fwp_kernel_setup_phase1),
-        ));
+        );
 
         HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER.enable(hooked_bl_img_allocate_image_buffer);
         HOOK_OSL_FWP_KERNEL_SETUP_PHASE1.enable(hooked_osl_fwp_kernel_setup_phase1);
@@ -585,7 +539,7 @@ impl LoaderParameterBlockEx for LoaderParameterBlock {
                 .Flink;
 
             let base_image_name = unsafe {
-                core::slice::from_raw_parts(
+                slice::from_raw_parts(
                     entry.BaseImageName.Buffer,
                     (entry.BaseImageName.Length / 2) as usize,
                 )
@@ -611,7 +565,7 @@ fn handle_osl_lpb(lpb: *mut LoaderParameterBlock) -> anyhow::Result<()> {
 
     {
         let full_image_name = unsafe {
-            core::slice::from_raw_parts(
+            slice::from_raw_parts(
                 hijacked_driver.BaseImageName.Buffer as *mut u16,
                 (hijacked_driver.BaseImageName.Length / 2) as usize,
             )

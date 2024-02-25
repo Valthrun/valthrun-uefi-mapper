@@ -39,3 +39,25 @@ pub struct UNICODE_STRING {
     pub MaximumLength: u16,
     pub Buffer: *mut u16,
 }
+
+#[allow(non_camel_case_types)]
+pub type NT_STATUS = i32;
+
+pub type ImgArchStartBootApplication = extern "efiapi" fn(
+    app_entry: *const (),
+    image_base: *mut u8,
+    image_size: u32,
+    boot_option: u8,
+    return_arguments: *mut (),
+) -> u32;
+
+pub type BlImgAllocateImageBuffer = extern "efiapi" fn(
+    image_buffer: *mut *mut u8,
+    image_size: usize,
+    memory_type: u32,
+    attributes: u32,
+    unused: *const (),
+    flags: u32,
+) -> NT_STATUS;
+
+pub type OslFwpKernelSetupPhase1 = extern "efiapi" fn(lpb: *mut LoaderParameterBlock) -> u32;

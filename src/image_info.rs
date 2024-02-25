@@ -1,4 +1,5 @@
 use alloc::string::ToString;
+use core::slice;
 
 use anyhow::{
     anyhow,
@@ -11,11 +12,11 @@ use uefi::{
 };
 
 use crate::{
-    context::system_table,
     signature::{
         Signature,
         SignatureType,
     },
+    uefi_core::system_table,
 };
 
 pub struct ImageInfo {
@@ -99,5 +100,16 @@ impl From<&LoadedImage> for ImageInfo {
             image_base: image_base as *mut u8,
             image_size: image_size as usize,
         }
+    }
+}
+
+pub struct ImageBuffer {
+    pub address: *mut u8,
+    pub length: usize,
+}
+
+impl ImageBuffer {
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.address, self.length) }
     }
 }
