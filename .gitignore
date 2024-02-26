@@ -6,3 +6,6 @@ _ida
 
 driver_uefi.zip
 driver
+
+scripts/__*
+**/*.iso
