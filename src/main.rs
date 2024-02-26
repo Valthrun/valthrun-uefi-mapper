@@ -182,7 +182,7 @@ extern "efiapi" fn hooked_bl_img_allocate_image_buffer(
 
     {
         let mut buffer = ptr::null_mut();
-        let buffer_size = 0x80000; /* Next time try to get the highest VirtAddr + VirtSize */
+        let buffer_size = 0x100000; /* Next time try to get the highest VirtAddr + VirtSize */
         let status = (original)(
             &mut buffer,
             buffer_size,
