@@ -33,3 +33,25 @@ pub fn set_exit_boot_services(target: FnExitBootServices) -> FnExitBootServices 
 
     mem::replace(&mut raw_bs.exit_boot_services, target)
 }
+
+#[repr(C)] // guarantee 'bytes' comes after '_align'
+pub struct AlignedAs<Align, Bytes: ?Sized> {
+    pub _align: [Align; 0],
+    pub bytes: Bytes,
+}
+
+macro_rules! include_bytes_align_as {
+    ($align_ty:ty, $path:literal) => {{
+        // const block expression to encapsulate the static
+        use $crate::utils::AlignedAs;
+
+        // this assignment is made possible by CoerceUnsized
+        static ALIGNED: &AlignedAs<$align_ty, [u8]> = &AlignedAs {
+            _align: [],
+            bytes: *include_bytes!($path),
+        };
+
+        &ALIGNED.bytes
+    }};
+}
+pub(crate) use include_bytes_align_as;

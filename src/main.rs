@@ -73,6 +73,7 @@ use uefi::{
     Identify,
 };
 use uefi_core::system_table;
+use utils::include_bytes_align_as;
 use wdef::{
     BlImgAllocateImageBuffer,
     ImgArchStartBootApplication,
@@ -104,7 +105,11 @@ type FnExitBootServices =
 const BL_MEMORY_TYPE_APPLICATION: u32 = 0xE0000004;
 const BL_MEMORY_ATTRIBUTE_RWX: u32 = 0x424000;
 
-static TARGET_DRIVER: &'static [u8] = include_bytes!(r"../driver/driver_uefi.dll");
+#[repr(align(4096))]
+struct Align4096;
+
+static TARGET_DRIVER: &'static [u8] =
+    include_bytes_align_as!(Align4096, r"../driver/driver_uefi.dll");
 
 type StaticTrampolineHook<H> = StaticHook<H, TrampolineHook<H>>;
 
@@ -218,8 +223,8 @@ extern "efiapi" fn hooked_osl_fwp_kernel_setup_phase1(lpb: *mut LoaderParameterB
         HOOK_OSL_FWP_KERNEL_SETUP_PHASE1.target().unwrap_unchecked()
     };
 
-    if let Err(err) = handle_osl_lpb(lpb) {
-        log::error!("{:#}", err);
+    unsafe {
+        MAPPING_RESULT = Some(handle_osl_lpb(lpb));
     }
 
     original(lpb)
@@ -229,6 +234,7 @@ static mut ORIGINAL_EXIT_BOOT_SERVICES: Option<FnExitBootServices> = None;
 
 static mut WINLOAD_IMAGE: Option<ImageInfo> = None;
 static mut IMAGE_BUFFER: Option<ImageBuffer> = None;
+static mut MAPPING_RESULT: Option<anyhow::Result<()>> = None;
 
 mod hook;
 mod image_info;
@@ -444,6 +450,9 @@ unsafe extern "efiapi" fn hooked_exit_boot_services(
             );
         }
 
+        unsafe { MAPPING_RESULT.take() }
+            .ok_or_else(|| anyhow!("{}", obfstr!("Mapping callback has never been called")))??;
+
         let image_buffer = unsafe { IMAGE_BUFFER.as_ref() }.with_context(|| {
             obfstr!("Never allocated the target images image buffer").to_string()
         })?;
@@ -455,6 +464,7 @@ unsafe extern "efiapi" fn hooked_exit_boot_services(
     }
 
     if let Err(err) = finish_setup() {
+        log::error!("Failed to map the Valthrun driver!");
         log::error!("{:#}", err);
         press_enter_to_continue();
     } else {
@@ -589,14 +599,13 @@ fn handle_osl_lpb(lpb: *mut LoaderParameterBlock) -> anyhow::Result<()> {
     let image_buffer = unsafe { IMAGE_BUFFER.as_mut() }
         .with_context(|| obfstr!("Expected to have allocated memory").to_string())?;
     let base_address = image_buffer.address as u64;
-    if let Err(err) = map_custom_driver(
+    map_custom_driver(
         hijacked_driver_memory,
         &TARGET_DRIVER,
         image_buffer.as_slice_mut(),
         base_address,
-    ) {
-        log::error!("Mapping error: {:#}", err);
-    }
+    )
+    .with_context(|| obfstr!("mapping error").to_string())?;
 
     Ok(())
 }
