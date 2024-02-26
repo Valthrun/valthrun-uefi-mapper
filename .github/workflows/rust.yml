@@ -13,11 +13,11 @@ jobs:
 
     steps:
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2023-12-26
           target: x86_64-unknown-uefi
-          override: true
+          components: rustfmt
       - uses: actions/checkout@v3
         with:
           submodules: recursive
@@ -26,7 +26,7 @@ jobs:
           cache-on-failure: true
           cache-all-crates: true
       - name: Check fmt
-        run: rustup component add rustfmt && cargo fmt --check
+        run: cargo fmt --check
       - name: Build
         run: ./.github/workflows/CI-Build.ps1
       - uses: actions/upload-artifact@v4
