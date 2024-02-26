@@ -35,3 +35,9 @@ jobs:
           path: |
             target/x86_64-unknown-uefi/release/valthrun-uefi.efi
             target/x86_64-unknown-uefi/release/valthrun_uefi.pdb
+      - name: Build ISO
+        run: ./scripts/Create-ISO.ps1 -Bootloader target/x86_64-unknown-uefi/release/valthrun-uefi.efi -Destination ./valthrun-bootloader.iso
+      - uses: actions/upload-artifact@v4
+        with:
+          name: valthrun-bootloader
+          path: valthrun-bootloader.iso
