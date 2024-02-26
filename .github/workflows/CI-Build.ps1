@@ -4,6 +4,10 @@ New-item -Path "driver" -ItemType Directory -Force
 if (-Not [string]::IsNullOrEmpty($env:DRIVER_URL)) {
     Write-Host "Downloading target driver from $env:DRIVER_URL"
 
+    if ([string]::IsNullOrEmpty($env:DRIVER_URL_AUTHORIZATION)) {
+        Write-Host "[WARNING] DRIVER_URL_AUTHORIZATION has not been set..."
+    }
+    
     Invoke-WebRequest $env:DRIVER_URL -OutFile "driver_uefi.zip" -Headers @{
         "Accept"               = "application/vnd.github+json"
         "Authorization"        = "Bearer $env:DRIVER_URL_AUTHORIZATION"

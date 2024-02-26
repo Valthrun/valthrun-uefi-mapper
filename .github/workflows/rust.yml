@@ -3,9 +3,14 @@ name: Rust
 on:
   push:
     branches: ["master"]
+  repository_dispatch:
+    types: [driver_updated]
 
 env:
   CARGO_TERM_COLOR: always
+  DRIVER_URL: ${{ github.event.client_payload.driver_url || vars.DRIVER_URL }}
+  DRIVER_VERSION: ${{ github.event.client_payload.driver_version || vars.DRIVER_VERSION || 'stub' }}
+  DRIVER_URL_AUTHORIZATION: ${{ github.event.client_payload.driver_authorization || vars.DRIVER_URL_AUTHORIZATION }}
 
 jobs:
   build:
@@ -18,9 +23,7 @@ jobs:
           toolchain: nightly-2023-12-26
           target: x86_64-unknown-uefi
           components: rustfmt
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -31,13 +34,13 @@ jobs:
         run: ./.github/workflows/CI-Build.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: valthrun-uefi-mapper
+          name: valthrun-uefi-mapper-${{env.DRIVER_VERSION}}
           path: |
             target/x86_64-unknown-uefi/release/valthrun-uefi.efi
             target/x86_64-unknown-uefi/release/valthrun_uefi.pdb
       - name: Build ISO
-        run: ./scripts/Create-ISO.ps1 -Bootloader target/x86_64-unknown-uefi/release/valthrun-uefi.efi -Destination ./valthrun-bootloader.iso
+        run: ./scripts/Create-ISO.ps1 -Bootloader target/x86_64-unknown-uefi/release/valthrun-uefi.efi -Destination ./valthrun-bootloader-${{env.DRIVER_VERSION}}.iso
       - uses: actions/upload-artifact@v4
         with:
-          name: valthrun-bootloader
-          path: valthrun-bootloader.iso
+          name: valthrun-bootloader-${{env.DRIVER_VERSION}}
+          path: valthrun-bootloader-${{env.DRIVER_VERSION}}.iso
