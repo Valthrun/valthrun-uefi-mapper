@@ -79,6 +79,7 @@ use wdef::{
     ImgArchStartBootApplication,
     LoaderParameterBlock,
     OslFwpKernelSetupPhase1,
+    BL_MEMORY_TYPE_DRIVER,
     KLDR_DATA_TABLE_ENTRY,
     NT_STATUS,
 };
@@ -101,9 +102,6 @@ const WINDOWS_BOOTMGR_PATH: &'static [u16] =
 
 type FnExitBootServices =
     unsafe extern "efiapi" fn(image_handle: uefi_raw::Handle, map_key: usize) -> Status;
-
-const BL_MEMORY_TYPE_APPLICATION: u32 = 0xE0000004;
-const BL_MEMORY_ATTRIBUTE_RWX: u32 = 0x424000;
 
 #[repr(align(4096))]
 struct Align4096;
@@ -168,11 +166,10 @@ extern "efiapi" fn hooked_bl_img_allocate_image_buffer(
     image_size: usize,
     memory_type: u32,
     attributes: u32,
-    unused: *const (),
+    unused: u64,
     flags: u32,
 ) -> NT_STATUS {
     let _guard = enter_execution_context(ExecutionContext::WINLOAD);
-
     let original = unsafe {
         HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER.disable();
         HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER
@@ -180,39 +177,87 @@ extern "efiapi" fn hooked_bl_img_allocate_image_buffer(
             .unwrap_unchecked()
     };
 
-    {
-        let mut buffer = ptr::null_mut();
-        let buffer_size = 0x100000; /* Next time try to get the highest VirtAddr + VirtSize */
-        let status = (original)(
-            &mut buffer,
-            buffer_size,
-            BL_MEMORY_TYPE_APPLICATION,
-            BL_MEMORY_ATTRIBUTE_RWX,
-            unused,
-            0x00,
-        );
-
-        log::debug!("BlMemory allocate: {:X} | {:X}", status, buffer as u64);
-        if status == 0 {
-            unsafe {
-                IMAGE_BUFFER = Some(ImageBuffer {
-                    address: buffer,
-                    length: buffer_size,
-                })
-            }
-        } else {
-            log::error!("Failed to allocate driver buffer: {:X}", status);
-        }
-    }
-
-    original(
+    // log::debug!(
+    //     "BlMemory size: {:X}, type: {:X}, attr: {:X}, unused: {:X}, flags: {:X}",
+    //     image_size,
+    //     memory_type,
+    //     attributes,
+    //     unused,
+    //     flags
+    // );
+    let original_result = original(
         image_buffer,
         image_size,
         memory_type,
         attributes,
         unused,
         flags,
-    )
+    );
+
+    let image_buffer = unsafe { &mut IMAGE_BUFFER };
+    if image_buffer.is_some() {
+        /* We already have an image buffer for some reason... */
+        return original_result;
+    }
+
+    if memory_type != BL_MEMORY_TYPE_DRIVER {
+        /* Allocation wasnt a driver, we'll wait untill the bootloader tried to allocate a driver buffer */
+        unsafe {
+            HOOK_BL_IMG_ALLOCATE_IMAGE_BUFFER.enable(hooked_bl_img_allocate_image_buffer);
+        };
+        return original_result;
+    }
+
+    match allocate_image_buffer(original, memory_type, attributes, unused, flags) {
+        Ok(buffer) => {
+            *image_buffer = Some(buffer);
+        }
+        Err(err) => {
+            log::error!("{}: {:?}", obfstr!("Failed to allocate image buffer"), err);
+        }
+    }
+
+    original_result
+}
+
+fn allocate_image_buffer(
+    bl_allocate: BlImgAllocateImageBuffer,
+    memory_type: u32,
+    attributes: u32,
+    unused: u64,
+    flags: u32,
+) -> anyhow::Result<ImageBuffer> {
+    let pe = PeFile::from_bytes(TARGET_DRIVER)
+        .map_err(|err| anyhow!("{}: {}", obfstr!("failed to parse packed driver"), err))?;
+
+    let mut image_buffer = ptr::null_mut();
+    let image_size = match pe.optional_header() {
+        Wrap::T32(header) => header.SizeOfImage,
+        Wrap::T64(header) => header.SizeOfImage,
+    } as usize;
+
+    log::debug!("{}: {}", obfstr!("Packed driver image size is"), image_size);
+    let status = bl_allocate(
+        &mut image_buffer,
+        image_size,
+        memory_type,
+        attributes,
+        unused,
+        flags,
+    );
+
+    if status != 0 {
+        anyhow::bail!("NT error {:X}", status)
+    }
+
+    log::debug!(
+        "Allocated packed driver image buffer at {:X}",
+        image_buffer as u64
+    );
+    Ok(ImageBuffer {
+        address: image_buffer,
+        length: image_size,
+    })
 }
 
 extern "efiapi" fn hooked_osl_fwp_kernel_setup_phase1(lpb: *mut LoaderParameterBlock) -> u32 {

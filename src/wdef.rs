@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Windows kernel and loader definitions
 
 #[repr(C)]
@@ -56,8 +57,13 @@ pub type BlImgAllocateImageBuffer = extern "efiapi" fn(
     image_size: usize,
     memory_type: u32,
     attributes: u32,
-    unused: *const (),
+    unused: u64,
     flags: u32,
 ) -> NT_STATUS;
 
 pub type OslFwpKernelSetupPhase1 = extern "efiapi" fn(lpb: *mut LoaderParameterBlock) -> u32;
+
+pub const BL_MEMORY_TYPE_KERNEL: u32 = 0xE0000012; /* ntoskrnl.exe, kdstub.dll, kdcom.dll, hal.dll, mcupdate.dll */
+pub const BL_MEMORY_TYPE_DRIVER: u32 = 0xE0000013; /* all other normal drivers */
+pub const BL_MEMORY_TYPE_KERNEL_SECURE: u32 = 0xE0000022;
+pub const BL_MEMORY_ATTRIBUTE_RWX: u32 = 0x424000; /* Value taken from a dummy bl img allocate buffer call with driver type */
