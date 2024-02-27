@@ -41,17 +41,61 @@ if ([string]::IsNullOrEmpty($Bootloader)) {
 
 # Generate the FAT32 content for efi
 & {
-    $BootImageFile = New-Object System.IO.FileStream $BootImage, Create, ReadWrite
-    $BootImageFile.SetLength(20MB) # TODO: Improve file size by calculating the required size
-    $BootImageFile.Close()
+    $BootFiles = @(
+        @{
+            "Source" = $(Resolve-Path "$Resources\PreLoader.efi" -Relative)
+            "Target" = "::EFI/BOOT/bootx64.efi"
+        },
+        @{
+            "Source" = $(Resolve-Path "$Resources\HashTool.efi" -Relative)
+            "Target" = "::EFI/BOOT/HashTool.efi"
+        },
+        @{
+            "Source" = $(Resolve-Path "$Bootloader" -Relative)
+            "Target" = "::EFI/BOOT/loader.efi"
+        }
+    )
 
-    & $mtools -c mformat -i "$BootImage" ::
-    & $mtools -c mmd -i "$BootImage" "::EFI"
-    & $mtools -c mmd -i "$BootImage" "::EFI/BOOT"
-    & $mtools -c mcopy -i "$BootImage" $(Resolve-Path "$Resources\PreLoader.efi" -Relative) "::EFI/BOOT/bootx64.efi"
-    & $mtools -c mcopy -i "$BootImage" $(Resolve-Path "$Resources\HashTool.efi" -Relative) "::EFI/BOOT/HashTool.efi"
-    & $mtools -c mcopy -i "$BootImage" $(Resolve-Path "$Bootloader" -Relative) "::EFI/BOOT/loader.efi"
-    # & $mtools -c mdir -i "$BootImage" "::EFI/BOOT"
+    $FileAlignment = 0x200
+    foreach ($File in $BootFiles) {
+        $File.Size = (Get-Item $File.Source).Length
+        if (($File.Size -band ($FileAlignment - 1)) -ne 0) {
+            $File.SizePadded = ($File.Size -band (-bnot ($FileAlignment - 1))) + $FileAlignment
+        }
+        else {
+            $File.SizePadded = $File.Size
+        }
+    }
+
+    $SizeTotal = $($BootFiles | measure-object -property SizePadded -Sum).Sum
+    $LastError = $null
+    foreach ($Padding in 8, 16, 24, 32, 48, 64, 128) {
+        Write-Host "Try padding $Padding"
+        try {
+            $BootImageFile = New-Object System.IO.FileStream $BootImage, Create, ReadWrite
+            $BootImageFile.SetLength($SizeTotal + 1024 * $Padding)
+            $BootImageFile.Close()
+        
+            & $mtools -c mformat -i "$BootImage" :: || $(throw "Failed to format disk")
+            & $mtools -c mmd -i "$BootImage" "::EFI" || $(throw "Failed to create folder")
+            & $mtools -c mmd -i "$BootImage" "::EFI/BOOT" || $(throw "Failed to create folder")
+            foreach ($File in $BootFiles) {
+                & $mtools -c mcopy -i "$BootImage" "$($File.Source)" "$($File.Target)" || $(throw "Failed to copy $($File.Source) to $($File.Target)")
+            }
+            # & $mtools -c mdir -i "$BootImage" "::EFI/BOOT"
+
+            Write-Host "Created FAT system with $Padding additional kb"
+            $LastError = $null
+            break
+        }
+        catch {
+            $LastError = $_
+        }
+    }
+   
+    if ($LastError -ne $null) {
+        throw $LastError
+    }
 }
 
 # Create the ISO from root directory
@@ -61,8 +105,8 @@ if ([string]::IsNullOrEmpty($Bootloader)) {
     -no-emul-boot `
     -eltorito-platform efi `
     -eltorito-boot EFI/BOOT/efibootfs.img `
-    -A "VT UEFI Loader" `
     "$IsoRoot"
+
 if (-not $?) { 
     throw "Failed to create ISO ($LastExitCode)"
 }
