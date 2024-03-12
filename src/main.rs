@@ -143,6 +143,7 @@ extern "efiapi" fn hooked_img_arch_start_boot_application(
     };
     if let Err(err) = setup_hooks_winload(winload) {
         log::error!("{:#}", err);
+        utils::press_enter_to_continue();
     }
 
     log::debug!("Calling ImgArchStartBootApplication");
@@ -543,12 +544,32 @@ fn setup_hooks_bootmgr(image: ImageInfo) -> anyhow::Result<()> {
 fn setup_hooks_winload(image: ImageInfo) -> anyhow::Result<()> {
     winload::initialize(&image)?;
 
-    let bl_img_allocate_image_buffer = image.resolve_signature(&Signature::relative_address(
-        obfstr!("BlImgAllocateImageBuffer"),
-        obfstr!("E8 ? ? ? ? 4C 8B 7D 50 8B"),
-        0x01,
-        0x05,
-    ))?;
+    let bl_img_allocate_image_buffer = [
+        /* Windows 11 */
+        Signature::relative_address(
+            obfstr!("BlImgAllocateImageBuffer (11)"),
+            obfstr!("E8 ? ? ? ? 4C 8B 7D 50 8B"),
+            0x01,
+            0x05,
+        ),
+        /* Windows 10 19045.4046 (efi) */
+        Signature::relative_address(
+            obfstr!("BlImgAllocateImageBuffer (19045.4046/efi)"),
+            obfstr!("E8 ? ? ? ? 4C 8B 6D 60"),
+            0x01,
+            0x05,
+        ),
+        /* Windows 10 19045.4046 (exe) */
+        Signature::relative_address(
+            obfstr!("BlImgAllocateImageBuffer (19045.4046/exe)"),
+            obfstr!("E8 ? ? ? ? 4C 8B 65 50 8B"),
+            0x01,
+            0x05,
+        ),
+    ]
+    .into_iter()
+    .find_map(|sig| image.resolve_signature(&sig).ok())
+    .with_context(|| obfstr!("Failed to locate BlImgAllocateImageBuffer signature").to_string())?;
 
     let osl_fwp_kernel_setup_phase1 = image.resolve_signature(&Signature::pattern(
         obfstr!("OslFwpKernelSetupPhase1"),

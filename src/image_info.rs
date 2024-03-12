@@ -1,4 +1,4 @@
-use alloc::string::ToString;
+use alloc::format;
 use core::slice;
 
 use anyhow::{
@@ -58,7 +58,13 @@ impl ImageInfo {
         let inst_offset = signature
             .pattern
             .find(self.image_as_slice())
-            .with_context(|| obfstr!("failed to find pattern").to_string())?;
+            .with_context(|| {
+                format!(
+                    "{} {}",
+                    obfstr!("failed to find pattern"),
+                    signature.debug_name
+                )
+            })?;
 
         if matches!(&signature.value_type, SignatureType::Pattern) {
             let address = self.image_base.wrapping_byte_add(inst_offset) as usize;

@@ -5,7 +5,7 @@ use alloc::{
     vec::Vec,
 };
 
-pub trait SearchPattern {
+pub trait SearchPattern: Sync {
     fn length(&self) -> usize;
     fn is_matching(&self, target: &[u8]) -> bool;
 
