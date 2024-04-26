@@ -6,6 +6,8 @@ Doing this has several advantages:
 
 ## Build the ISO
 ```ps1
+Requirements PowerShell 7 or higher.
+
 cargo b --target x86_64-unknown-uefi && .\scripts\Create-ISO.ps1 -Destination ./bootloader.iso
 ```
 
