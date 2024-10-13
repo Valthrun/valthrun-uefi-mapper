@@ -1,2 +1,3 @@
 [toolchain]
 targets = ["x86_64-unknown-uefi"]
+channel = "nightly-2024-09-25"

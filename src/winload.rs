@@ -1,5 +1,6 @@
-use core::mem;
+use alloc::string::ToString;
 
+use anyhow::Context;
 use obfstr::obfstr;
 
 use crate::{
@@ -13,23 +14,47 @@ static mut CURRENT_EXECUTION_CONTEXT: Option<*mut u32> = None;
 static mut BLP_ARCH_SWITCH_CONTEXT: Option<FnBlpArchSwitchContext> = None;
 
 pub fn initialize(image: &ImageInfo) -> anyhow::Result<()> {
-    let current_execution_context = image.resolve_signature(&Signature::relative_address(
-        obfstr!("CurrentExecutionContext"),
-        obfstr!("48 8B 05 ? ? ? ? 4C 8D 7D D0"),
-        0x03,
-        0x07,
-    ))? as *mut u32;
+    let current_execution_context = [
+        Signature::relative_address(
+            obfstr!("CurrentExecutionContext (2600.1252)"),
+            obfstr!("48 8B 05 ? ? ? ? 48 85 C0 74 57"),
+            0x03,
+            0x07,
+        ),
+        Signature::relative_address(
+            obfstr!("CurrentExecutionContext"),
+            obfstr!("48 8B 05 ? ? ? ? 4C 8D 7D D0"),
+            0x03,
+            0x07,
+        ),
+    ]
+    .iter()
+    .find_map(|sig| image.resolve_signature(sig).ok())
+    .map(|v| unsafe { core::mem::transmute(v) })
+    .with_context(|| obfstr!("Failed to find CurrentExecutionContext").to_string())?;
 
-    let blp_arch_switch_context = image.resolve_signature(&Signature::relative_address(
-        obfstr!("BlpArchSwitchContext"),
-        obfstr!("E8 ? ? ? ? 48 8B 43 08 49"),
-        0x01,
-        0x05,
-    ))?;
+    let blp_arch_switch_context = [
+        Signature::relative_address(
+            obfstr!("BlpArchSwitchContext (2600.1252)"),
+            obfstr!("E8 ? ? ? ? 48 8B 15 ? ? ? ? 4C 8B"),
+            0x01,
+            0x05,
+        ),
+        Signature::relative_address(
+            obfstr!("BlpArchSwitchContext"),
+            obfstr!("E8 ? ? ? ? 48 8B 43 08 49"),
+            0x01,
+            0x05,
+        ),
+    ]
+    .iter()
+    .find_map(|sig| image.resolve_signature(sig).ok())
+    .map(|v| unsafe { core::mem::transmute(v & 0xFFFFFF) })
+    .with_context(|| obfstr!("Failed to find BlpArchSwitchContext").to_string())?;
 
     unsafe {
         CURRENT_EXECUTION_CONTEXT = Some(current_execution_context);
-        BLP_ARCH_SWITCH_CONTEXT = Some(mem::transmute(blp_arch_switch_context));
+        BLP_ARCH_SWITCH_CONTEXT = Some(blp_arch_switch_context);
     }
 
     Ok(())

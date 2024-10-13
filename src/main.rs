@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 #![feature(sync_unsafe_cell)]
+#![allow(static_mut_refs)]
 
 use alloc::{
     boxed::Box,
@@ -545,6 +546,12 @@ fn setup_hooks_winload(image: ImageInfo) -> anyhow::Result<()> {
     winload::initialize(&image)?;
 
     let bl_img_allocate_image_buffer = [
+        Signature::relative_address(
+            obfstr!("BlImgAllocateImageBuffer (2600.1252)"),
+            obfstr!("E8 ? ? ? ? 4C 8B 75 D8 8B D8 85 C0 0F"),
+            0x01,
+            0x05,
+        ),
         /* Windows 11 */
         Signature::relative_address(
             obfstr!("BlImgAllocateImageBuffer (11)"),
