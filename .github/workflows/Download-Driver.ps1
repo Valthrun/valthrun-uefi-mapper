@@ -21,9 +21,3 @@ elseif (-not (Test-Path "driver/driver_uefi.dll")) {
     Write-Host "Creating stub driver_uefi.dll"
     Out-File -FilePath "driver/driver_uefi.dll"
 }
-
-cargo b -v -r --target x86_64-unknown-uefi
-if (-not $?) {
-    Write-Host "Failed to build EFI module"
-    exit 1
-}
