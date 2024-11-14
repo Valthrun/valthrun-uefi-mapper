@@ -460,7 +460,7 @@ fn find_windows_bootmgr(
     }
 
     if !found_devices.is_empty() {
-        let device_index = show_select(found_devices.len());
+        let device_index = if found_devices.len() == 1 { 0 } else { show_select(found_devices.len()) };
         let (device_path, windows_bootmgr_path) = &found_devices[device_index];
         let device_path = device_path
             .get()
