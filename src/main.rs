@@ -91,6 +91,7 @@ use crate::{
         ExecutionContext,
     },
     utils::{
+        show_select,
         press_enter_to_continue,
         set_exit_boot_services,
     },
@@ -399,6 +400,8 @@ fn find_windows_bootmgr(
         .locate_handle_buffer(SearchType::ByProtocol(&SimpleFileSystem::GUID))
         .map_err(|err| anyhow!("{}: {:#}", obfstr!("locating simple fs"), err))?;
 
+    let mut found_devices = Vec::new();
+
     for handle in file_systems.iter() {
         let device_path = boot_services
             .open_protocol_exclusive::<DevicePath>(*handle)
@@ -451,29 +454,35 @@ fn find_windows_bootmgr(
         );
 
         if win_handle.is_ok() {
-            let device_path = device_path
-                .get()
-                .expect(obfstr!("device path to be present"))
-                .to_boxed();
-
-            let mut buffer = Vec::new();
-
-            let file_device_path = device_path.node_iter().fold(
-                build::DevicePathBuilder::with_vec(&mut buffer),
-                |acc, entry| acc.push(&entry).unwrap(),
-            );
-
-            let file_device_path = file_device_path
-                .push(&build::media::FilePath {
-                    path_name: &windows_bootmgr_path,
-                })
-                .unwrap()
-                .finalize()
-                .unwrap();
-
             /* Windows boot manager has been found */
-            return Ok(Some(file_device_path.to_boxed()));
+            found_devices.push((device_path, windows_bootmgr_path));
         }
+    }
+
+    if !found_devices.is_empty() {
+        let device_index = show_select(found_devices.len());
+        let (device_path, windows_bootmgr_path) = &found_devices[device_index];
+        let device_path = device_path
+            .get()
+            .expect(obfstr!("device path to be present"))
+            .to_boxed();
+    
+        let mut buffer = Vec::new();
+    
+        let file_device_path = device_path.node_iter().fold(
+            build::DevicePathBuilder::with_vec(&mut buffer),
+            |acc, entry| acc.push(&entry).unwrap(),
+        );
+    
+        let file_device_path = file_device_path
+            .push(&build::media::FilePath {
+                path_name: &windows_bootmgr_path,
+            })
+            .unwrap()
+            .finalize()
+            .unwrap();
+    
+        return Ok(Some(file_device_path.to_boxed()));
     }
 
     Ok(None)
