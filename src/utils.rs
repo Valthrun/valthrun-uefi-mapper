@@ -10,6 +10,44 @@ use crate::{
     FnExitBootServices,
 };
 
+pub fn show_select(num_devices: usize) -> usize {
+    log::info!("Select device to boot:");
+    for index in 0..num_devices.min(12) {
+        log::info!("F{}: Device {}", index + 1, index + 1);
+    }
+
+    loop {
+        if let Ok(event) = system_table().stdin().read_key() {
+            let key = match event {
+                Some(key) => key,
+                None => continue,
+            };
+
+            if let Key::Special(scancode) = key {
+                let scan_value = match scancode {
+                    ScanCode::FUNCTION_1 => 1,
+                    ScanCode::FUNCTION_2 => 2,
+                    ScanCode::FUNCTION_3 => 3,
+                    ScanCode::FUNCTION_4 => 4,
+                    ScanCode::FUNCTION_5 => 5,
+                    ScanCode::FUNCTION_6 => 6,
+                    ScanCode::FUNCTION_7 => 7,
+                    ScanCode::FUNCTION_8 => 8,
+                    ScanCode::FUNCTION_9 => 9,
+                    ScanCode::FUNCTION_10 => 10,
+                    ScanCode::FUNCTION_11 => 11,
+                    ScanCode::FUNCTION_12 => 12,
+                    _ => continue,
+                };
+
+                if scan_value >= 1 && scan_value <= num_devices {
+                    return (scan_value - 1) as usize;
+                }
+            }
+        }
+    }
+}
+
 pub fn press_enter_to_continue() {
     log::info!("Press F10 to continue");
     while let Ok(event) = system_table().stdin().read_key() {
