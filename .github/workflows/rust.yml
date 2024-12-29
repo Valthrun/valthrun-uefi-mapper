@@ -10,7 +10,6 @@ env:
   CARGO_TERM_COLOR: always
   DRIVER_URL: ${{ github.event.client_payload.driver_url || vars.DRIVER_URL }}
   DRIVER_VERSION: ${{ github.event.client_payload.driver_version || vars.DRIVER_VERSION || 'stub' }}
-  DRIVER_URL_AUTHORIZATION: ${{ github.event.client_payload.driver_authorization || vars.DRIVER_URL_AUTHORIZATION }}
 
 jobs:
   build:
@@ -37,7 +36,7 @@ jobs:
       - name: Download driver
         run: ./.github/workflows/Download-Driver.ps1
         env:
-          DRIVER_URL_AUTHORIZATION: ${{ secrets.DRIVER_URL_AUTHORIZATION }}
+          DRIVER_URL_AUTHORIZATION: ${{ github.event.client_payload.driver_authorization || secrets.DRIVER_URL_AUTHORIZATION }}
 
       - name: Build UEFI loader
         run: cargo b -v -r --target x86_64-unknown-uefi
