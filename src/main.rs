@@ -392,6 +392,69 @@ fn real_main(handle: Handle, system_table: &mut SystemTable<Boot>) -> anyhow::Re
     Ok(())
 }
 
+fn get_device_name_from_variable(device_path_raw: &[u8]) -> Option<String> {
+    let variable_keys = system_table().runtime_services().variable_keys().map_err(|e| {
+        log::warn!("{}: {:?}", obfstr!("Failed to get variable keys"), e);
+    }).ok()?;
+
+    variable_keys.iter().find_map(|variable_key| {
+        // Check if Boot#### variable
+        let cstr_name = variable_key.name().ok().filter(|cstr| {
+            cstr.to_string().starts_with(obfstr!("Boot"))
+                && cstr.to_string().len() == 8
+                && variable_key.vendor == uefi_raw::table::runtime::VariableVendor::GLOBAL_VARIABLE
+        })?;
+
+        // Get variable contents
+        let (data, _) = system_table().runtime_services().get_variable_boxed(&cstr_name, &variable_key.vendor).ok()?;
+
+        // EFI_LOAD_OPTION
+        // Attributes(u32): 4 + FilePathListLenght(u16): 2
+        let description_start = 6;
+
+        let file_path_list_length = {
+            let len = u16::from_le_bytes([data[4], data[5]]) as usize;
+            (len != 0).then_some(len)?
+        };
+
+        let description = String::from_utf16(
+            &data[description_start..]
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .take_while(|&u| u != 0)
+                .collect::<Vec<u16>>()
+        ).ok()?;
+        
+
+        // Attributes + FilePathListLength + Char16 chars * 2 bytes + null terminator (2 bytes)
+        let file_path_list_start = description_start + (description.len() * 2) + 2;
+
+        data.len().checked_sub(file_path_list_start).and_then(|_| {
+            let file_path_list = &data[file_path_list_start..file_path_list_start + file_path_list_length];
+
+            let mut nodes = Vec::new();
+            let mut start = 0;
+
+            let node_entire_end: [u8; 4] = [0x7f, 0xff, 0x04, 0x00];
+
+            // Split the nodes
+            for i in 0..(file_path_list.len() - 4 + 1) {
+                if &file_path_list[i..i + 4] == &node_entire_end {
+                    if start < i {
+                        nodes.push(&file_path_list[start..i]);
+                    }
+                    start = i + 4;
+                }
+            }
+
+            // Check if device_path starts with node
+            nodes.iter().find_map(|node|
+                device_path_raw.starts_with(node).then(|| description.clone())
+            )
+        })
+    })
+}
+
 fn find_windows_bootmgr(
     imnage_handle: Handle,
     boot_services: &BootServices,
@@ -401,6 +464,7 @@ fn find_windows_bootmgr(
         .map_err(|err| anyhow!("{}: {:#}", obfstr!("locating simple fs"), err))?;
 
     let mut found_devices = Vec::new();
+    let windows_bootmgr_path = CStr16::from_u16_with_nul(WINDOWS_BOOTMGR_PATH).unwrap();
 
     for handle in file_systems.iter() {
         let device_path = boot_services
@@ -445,8 +509,7 @@ fn find_windows_bootmgr(
                 continue;
             }
         };
-
-        let windows_bootmgr_path = CStr16::from_u16_with_nul(WINDOWS_BOOTMGR_PATH).unwrap();
+        
         let win_handle = volume.open(
             &windows_bootmgr_path,
             FileMode::Read,
@@ -455,13 +518,19 @@ fn find_windows_bootmgr(
 
         if win_handle.is_ok() {
             /* Windows boot manager has been found */
-            found_devices.push((device_path, windows_bootmgr_path));
+            let device_path_raw: &[u8] = device_path.as_bytes();
+            let device_name = get_device_name_from_variable(device_path_raw)
+                .unwrap_or_else(|| "unknown".to_string());
+
+            found_devices.push((device_path, device_name));
         }
     }
 
     if !found_devices.is_empty() {
-        let device_index = if found_devices.len() == 1 { 0 } else { show_select(found_devices.len()) };
-        let (device_path, windows_bootmgr_path) = &found_devices[device_index];
+        let device_index = if found_devices.len() == 1 { 0 } else {
+            show_select(found_devices.iter().map(|(_, name)| name.clone()).collect())
+        };
+        let device_path = &found_devices[device_index].0;
         let device_path = device_path
             .get()
             .expect(obfstr!("device path to be present"))
