@@ -1,5 +1,7 @@
 use core::mem;
 
+use obfstr::obfstr;
+use alloc::{vec::Vec, string::String};
 use uefi::proto::console::text::{
     Key,
     ScanCode,
@@ -9,6 +11,46 @@ use crate::{
     system_table,
     FnExitBootServices,
 };
+
+pub fn show_select(devices_name: Vec<String>) -> usize {
+
+    system_table().stdout().enable_cursor(false).ok();
+
+    let mut init = true;
+    let mut current_index: usize = 0;
+
+    let enter_key = uefi::Char16::try_from('\r').unwrap();
+
+    while let Ok(event) = system_table().stdin().read_key() {
+        if init { init = false; }
+        else {
+            let key = match event {
+                Some(key) => key,
+                None => continue,
+            };
+
+            match key {
+                Key::Printable(ch) if ch == enter_key => return current_index,
+                
+                Key::Special(ScanCode::DOWN) if current_index < devices_name.len() - 1 => current_index += 1,
+                
+                Key::Special(ScanCode::UP) if current_index > 0 => current_index -= 1,
+                
+                _ => continue,
+            }
+        }
+
+        system_table().stdout().clear().ok();
+
+        log::info!("{}", obfstr!("\r  Arrow Up/Down: Move cursor\r\n  Enter: Select\n"));
+        log::info!("{}", obfstr!("\r  Select device:"));
+
+        for (i, device_name) in devices_name.iter().enumerate() {
+            log::info!("{} {} {}: ({})", if i == current_index { "\r>" } else { "\r " }, obfstr!("Device"), i + 1, device_name);
+        }
+    }
+    current_index
+}
 
 pub fn press_enter_to_continue() {
     log::info!("Press F10 to continue");
