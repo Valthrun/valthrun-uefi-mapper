@@ -91,9 +91,9 @@ use crate::{
         ExecutionContext,
     },
     utils::{
-        show_select,
         press_enter_to_continue,
         set_exit_boot_services,
+        show_select,
     },
 };
 
@@ -393,9 +393,13 @@ fn real_main(handle: Handle, system_table: &mut SystemTable<Boot>) -> anyhow::Re
 }
 
 fn get_device_name_from_variable(device_path_raw: &[u8]) -> Option<String> {
-    let variable_keys = system_table().runtime_services().variable_keys().map_err(|e| {
-        log::warn!("{}: {:?}", obfstr!("Failed to get variable keys"), e);
-    }).ok()?;
+    let variable_keys = system_table()
+        .runtime_services()
+        .variable_keys()
+        .map_err(|e| {
+            log::warn!("{}: {:?}", obfstr!("Failed to get variable keys"), e);
+        })
+        .ok()?;
 
     variable_keys.iter().find_map(|variable_key| {
         // Check if Boot#### variable
@@ -406,7 +410,10 @@ fn get_device_name_from_variable(device_path_raw: &[u8]) -> Option<String> {
         })?;
 
         // Get variable contents
-        let (data, _) = system_table().runtime_services().get_variable_boxed(&cstr_name, &variable_key.vendor).ok()?;
+        let (data, _) = system_table()
+            .runtime_services()
+            .get_variable_boxed(&cstr_name, &variable_key.vendor)
+            .ok()?;
 
         // EFI_LOAD_OPTION
         // Attributes(u32): 4 + FilePathListLenght(u16): 2
@@ -422,15 +429,16 @@ fn get_device_name_from_variable(device_path_raw: &[u8]) -> Option<String> {
                 .chunks_exact(2)
                 .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .take_while(|&u| u != 0)
-                .collect::<Vec<u16>>()
-        ).ok()?;
-        
+                .collect::<Vec<u16>>(),
+        )
+        .ok()?;
 
         // Attributes + FilePathListLength + Char16 chars * 2 bytes + null terminator (2 bytes)
         let file_path_list_start = description_start + (description.len() * 2) + 2;
 
         data.len().checked_sub(file_path_list_start).and_then(|_| {
-            let file_path_list = &data[file_path_list_start..file_path_list_start + file_path_list_length];
+            let file_path_list =
+                &data[file_path_list_start..file_path_list_start + file_path_list_length];
 
             let mut nodes = Vec::new();
             let mut start = 0;
@@ -448,9 +456,11 @@ fn get_device_name_from_variable(device_path_raw: &[u8]) -> Option<String> {
             }
 
             // Check if device_path starts with node
-            nodes.iter().find_map(|node|
-                device_path_raw.starts_with(node).then(|| description.clone())
-            )
+            nodes.iter().find_map(|node| {
+                device_path_raw
+                    .starts_with(node)
+                    .then(|| description.clone())
+            })
         })
     })
 }
@@ -509,7 +519,7 @@ fn find_windows_bootmgr(
                 continue;
             }
         };
-        
+
         let win_handle = volume.open(
             &windows_bootmgr_path,
             FileMode::Read,
@@ -527,7 +537,9 @@ fn find_windows_bootmgr(
     }
 
     if !found_devices.is_empty() {
-        let device_index = if found_devices.len() == 1 { 0 } else {
+        let device_index = if found_devices.len() == 1 {
+            0
+        } else {
             show_select(found_devices.iter().map(|(_, name)| name.clone()).collect())
         };
         let device_path = &found_devices[device_index].0;
@@ -535,14 +547,14 @@ fn find_windows_bootmgr(
             .get()
             .expect(obfstr!("device path to be present"))
             .to_boxed();
-    
+
         let mut buffer = Vec::new();
-    
+
         let file_device_path = device_path.node_iter().fold(
             build::DevicePathBuilder::with_vec(&mut buffer),
             |acc, entry| acc.push(&entry).unwrap(),
         );
-    
+
         let file_device_path = file_device_path
             .push(&build::media::FilePath {
                 path_name: &windows_bootmgr_path,
@@ -550,7 +562,7 @@ fn find_windows_bootmgr(
             .unwrap()
             .finalize()
             .unwrap();
-    
+
         return Ok(Some(file_device_path.to_boxed()));
     }
 
