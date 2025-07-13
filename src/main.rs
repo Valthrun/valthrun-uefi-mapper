@@ -649,6 +649,20 @@ fn setup_hooks_winload(image: ImageInfo) -> anyhow::Result<()> {
             0x01,
             0x05,
         ),
+        /* Windows 10 19045.6093 (efi) */
+        Signature::relative_address(
+            "BlImgAllocateImageBuffer (19045.6093/efi)",
+            "E8 ? ? ? ? 4C 8B 6D 50 8B F8",
+            0x01,
+            0x05,
+        ),
+        /* Windows 10 19045.6093 (exe) */
+        Signature::relative_address(
+            "BlImgAllocateImageBuffer (19045.6093/exe)",
+            "E8 ? ? ? ? 4C 8B 6D 50",
+            0x01,
+            0x05,
+        ),
         /* Windows 10 19045.4046 (efi) */
         Signature::relative_address(
             obfstr!("BlImgAllocateImageBuffer (19045.4046/efi)"),
